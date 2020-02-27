@@ -5,18 +5,6 @@ author: 'Author: [Chris Mahoney](https://www.linkedin.com/in/chrimaho/)'
 date: 'Special thanks to: [Kailash Awati](https://eight2late.wordpress.com/2019/10/09/tackling-the-john-smith-problem-deduplicating-data-via-fuzzy-matching-in-r/)'
 toc-title: Contents
 output:
-  html_notebook: 
-    code_folding: none
-    highlight: haddock
-    includes:
-      after_body: footer.html
-      in_header: header.html
-    number_sections: yes
-    theme: lumen
-    toc: yes
-    toc_depth: 4
-    toc_float:
-      collapsed: no
   html_document:
     code_download: yes
     highlight: haddock
@@ -30,6 +18,18 @@ output:
     includes:
       in_header: header.html
       after_body: footer.html
+  html_notebook: 
+    code_folding: none
+    highlight: haddock
+    includes:
+      after_body: footer.html
+      in_header: header.html
+    number_sections: yes
+    theme: lumen
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: no
 ---
 
 <style>
@@ -678,7 +678,12 @@ theme_update(plot.title = element_text(hjust=0.5)
             )
 
 # Set Default table and figure sizes
-knitr::opts_chunk$set(rows.print=200, cols.print=30, fig.width=10, fig.height=7)
+knitr::opts_chunk$set(rows.print=200
+                     ,cols.print=30
+                     ,fig.width=10
+                     ,fig.height=7
+                     ,comment="> "
+                     )
 
 # Set Default rounding length
 options(digits = 4)
