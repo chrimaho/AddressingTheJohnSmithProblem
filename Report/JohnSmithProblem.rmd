@@ -1,0 +1,1307 @@
+---
+title: 'Addressing The John Smith Problem'
+subtitle: 'Using Fuzzy Logic to Identify Non-Matching Duplicates'
+author: 'Author: [Chris Mahoney](https://www.linkedin.com/in/chrimaho/)'
+date: 'Special thanks to: [Kailash Awati](https://eight2late.wordpress.com/2019/10/09/tackling-the-john-smith-problem-deduplicating-data-via-fuzzy-matching-in-r/)'
+toc-title: Contents
+output:
+  html_notebook: 
+    code_folding: none
+    highlight: haddock
+    includes:
+      after_body: footer.html
+      in_header: header.html
+    number_sections: yes
+    theme: lumen
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: no
+  html_document:
+    code_download: yes
+    highlight: haddock
+    number_sections: yes
+    template: default_toc.html
+    theme: lumen
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: no
+    includes:
+      in_header: header.html
+      after_body: footer.html
+---
+
+<style>
+.math {
+    <!-- font-size: 120%; -->
+    font-style: normal;
+    font-family: "Cambria Math";
+}
+.column {
+    float: left;
+    width: 50%;
+    border: 1px solid black;
+}
+.row:after {
+    content: "";
+    display: table;
+    clear: both;
+}
+h1, .h1 {
+    margin-top: 40px;
+    font-weight: bold;
+}
+h2, .h2 {
+    margin-top: 40px;
+    margin-left: 40px;
+}
+</style>
+
+
+<!-- Set Up Environment -->
+
+```{r SET Functions, echo=FALSE, eval=TRUE}
+# UDF to load packages ----
+LoadPackages <- function(packages, install=FALSE) {
+    #' @title Auto Load Packages
+    #' @description To load a list of packages from a character vector
+    #' @param packages character vector. An atomic string or a string vector of the list of packages to load.
+    #' @param install logical. A logical value for whether or not to install the packages that are missing.
+    #' @return A logical result (TRUE of FALSE) for if they were successfully loaded.
+    
+    # Validations:
+    stopifnot(is.character(packages))
+    stopifnot(is.logical(install))
+    
+    # Remove all packages. Note: The suppression functions are to limit the amount of printed output.
+    for (package in .packages()) {
+        if (!package %in% c("parallel", "stats", "graphics", "grDevices", "datasets", "utils", "methods", "base")) { #THESE PACKAGES ARE PART OF BASE!! YOU CANNOT REMOVE THEM!! But you can remove everything else...
+            suppressPackageStartupMessages ( 
+                suppressMessages ( 
+                    suppressWarnings ( 
+                        detach ( paste0("package:", package) #The `detach()` function is like the reverse of `library()` or `require()`.
+                                 , unload = TRUE
+                                 , character.only = TRUE
+                        )
+                    )
+                )
+            )
+        }
+    }
+    
+    # Install all defined packages
+    if (install==TRUE) {
+        for (package in packages) {
+            if (!package %in% installed.packages()) { #The `installed.packages()` function  returns a vector of all the installed packages...
+                install.packages ( package
+                                   # , quiet = TRUE
+                                   # , verbose = FALSE
+                                   , dependencies = TRUE
+                )
+            }
+        }
+    }
+    
+    # Load all defined packages
+    for (package in packages) { #Need to loop through a second time because it does funny things if you combine the `install.packages()` and `library()` steps in to one.
+        if (!package %in% .packages()) { #`.packages()` returns a vector of all the loaded packages...
+            suppressPackageStartupMessages (
+                library ( package
+                          , character.only = TRUE
+                          , quietly = TRUE
+                          , warn.conflicts = FALSE
+                          , verbose = FALSE
+                )
+            )
+        }
+        if (!package %in% .packages()) {
+            stop(paste0("Package '", package, "' was not loaded properly."))
+        }
+    }
+    
+    # Return
+    return(TRUE)
+    
+}
+
+
+# UDF for string manipulation (LEFT,RIGHT,MID) ----
+str_Left <- function(string, num_chars) {
+    #' @title Subset Left
+    #' @description Subset the `string` argument to only include the left-most `num_chars` number of characters.
+    #' Is similar to SQL and VB function LEFT().
+    #' @param string character. The text string you want to select from; must be an character type.
+    #' @param num_chars numeric. The number of characters that you want to select; must be an atomic numeric type.
+    #' @return A text string of length 'num_chars' that corresponds to the left most number of characters from the 'string' option.
+    
+    # Validations:
+    if (!is.character(string)) {stop("'string' must be a character string.")}
+    if (!is.numeric(num_chars)) {stop("'num_chars' must be numeric.")}
+    if (!length(num_chars)==1) {stop("'num_chars must be atomic.")}
+    
+    # Do work
+    return <- str_sub(string, end=num_chars)
+    
+    # Return
+    return(return)
+    
+}
+
+str_NotLeft <- function(string, num_chars) {
+    #' @title Subset Not Left
+    #' @description Subset the `string` argument excluding the left-most `num_chars` number of characters.
+    #' Is similar to SQL and VB function LEFT().
+    #' @param string character. The text string you want to select from; must be an character type.
+    #' @param num_chars numeric. The number of characters that you want to select; must be an atomic numeric type.
+    #' @return A text string of length 'num_chars' that corresponds to the left most number of characters from the 'string' option.
+    
+    # Validations:
+    if (!is.character(string)) {stop("'string' must be a character string.")}
+    if (!is.numeric(num_chars)) {stop("'num_chars' must be numeric.")}
+    if (!length(num_chars)==1) {stop("'num_chars must be atomic.")}
+    
+    # Do work
+    return <- str_sub(string, start=num_chars-1)
+    
+    # Return
+    return(return)
+    
+}
+
+str_Mid <- function(string, start_num, num_chars) {
+    #' @title Subset Left
+    #' @description Subset the mid-point in a string, starting from a specified position and extends to a specified length.
+    #' Is similar to SQL and VB function MID().
+    #' @param string character. The text string you want to select from; must be an atopic string.
+    #' @param start_num numeric. The starting position of the mid-text string you want to select from; must be an atomic numeric type.
+    #' @param num_chars numeric. The number of characters that you want to select; must be an atomic numeric type.
+    #' @return A text string of length 'num_chars' that corresponds to the characters from the 'start_num' starting position from the 'string' option.
+    
+    # Validations:
+    if (!is.character(string)) {stop("'string' must be a character string.")}
+    if (!is.numeric(start_num)) {stop("'start_num' must be numeric.")}
+    if (!length(start_num)==1) {stop ("'start_num' must be atomic.")}
+    if (!is.numeric(num_chars)) {stop("'num_chars' must be numeric.")}
+    if (!length(num_chars)==1) {stop("'num_chars' must be atomic.")}
+    
+    # Do work
+    return <- str_sub(string, start_num, start_num + num_chars - 1)
+    
+    # Return
+    return(return)
+    
+}
+
+str_Right <- function(string, num_chars) {
+    #' @title Subset Right
+    #' @description Subset the `string` argument to only include the right-most `num_chars` number of characters.
+    #' Is similar to SQL and VB function RIGHT().
+    #' @param string character. The text string you want to select from; must be an character type.
+    #' @param num_chars numeric. The number of characters that you want to select; must be an atomic numeric type.
+    #' @return A text string of length 'num_chars' that corresponds to the right most number of characters from the 'string' option.
+    
+    # Validations:
+    if (!is.character(string)) {stop("'string' must be a character string.")}
+    if (!is.numeric(num_chars)) {stop("'num_chars' must be numeric.")}
+    if (!length(num_chars)==1) {stop("'num_chars must be atomic.")}
+    
+    # Do work
+    return <- str_sub(string, start=-num_chars)
+    
+    # Return
+    return(return)
+    
+}
+
+str_NotRight <- function(string, num_chars) {
+    #' @title Subset Not Right
+    #' @description Subset the `string` argument excluting the right-most `num_chars` number of characters.
+    #' Is similar to SQL and VB function RIGHT().
+    #' @param string character. The text string you want to select from; must be an character type.
+    #' @param num_chars numeric. The number of characters that you want to select; must be an atomic numeric type.
+    #' @return A text string of length 'num_chars' that corresponds to the right most number of characters from the 'string' option.
+    
+    # Validations:
+    if (!is.character(string)) {stop("'string' must be a character string.")}
+    if (!is.numeric(num_chars)) {stop("'num_chars' must be numeric.")}
+    if (!length(num_chars)==1) {stop("'num_chars must be atomic.")}
+    
+    # Do work
+    return <- str_sub(string, end=-num_chars-1)
+    
+    # Return
+    return(return)
+    
+}
+
+# UDF for checking DF's ----
+get_DataFrameDetails <- function(dataframe, name) {
+    #' @title Get details of a data.frame.
+    #' @description Get some key data from a `data.frame`, including:
+    #' - Name
+    #' - Type
+    #' - Dimensions
+    #' - Size
+    #' - Count of records
+    #' - Count of distinct records
+    #' @param dataframe data.frame. The dataframe which will have the details generated from.
+    #' @param name character. The variable name of the data frame. This is used because `dplyr` pipes strip the name, and use the dot (`.`) notation for variable names.
+    #' @return A string containing the details of the dataframe.
+    
+    # Validations
+    if (!is.data.frame(dataframe)) {stop("'dataframe' must be a data.frame.")}
+    if (missing(name)) {name <- deparse(substitute(dataframe))}
+    if (!is.character(name)) {stop("'name' must be a string.")}
+    if (!length(name)==1) {stop("'name' must be an atomic value.")}
+    
+    # Get name
+    name <- paste("Name:", name)
+    
+    # Get type
+    type <- paste("Type:", class(dataframe))
+    
+    # Get dims
+    dims <- paste("Dims:", paste(dim(dataframe), collapse=" x "))
+    
+    # Get size
+    size <- dataframe %>% 
+        object.size() %>% 
+        format(units="auto") %>% 
+        paste("Size:", .)
+    
+    # Get counts
+    counts <- dataframe %>% 
+        summarise_each(n_distinct) %>% 
+        t() %>% 
+        data.frame("distinct"=.) %>% 
+        rownames_to_column("field") %>% 
+        mutate(count=nrow(dataframe)
+               ,"distinct%"=ifelse(distinct==1,0,distinct/count)
+               ) %>% 
+        as.matrix(rownames.force=TRUE) %>% 
+        noquote() %>% 
+        capture.output() %>% 
+        paste(collapse="\n") %>% 
+        paste("Field Counts:", ., sep="\n")
+    
+    # Combine
+    paste(name, type, dims, size, counts, sep="\n") %>% 
+        return()
+        
+}
+
+get_MatrixDetails <- function(matrix, name) {
+    #' @title Get details of a matrix
+    #' @description Get some key data from a `matrix`, including:
+    #' - Name
+    #' - Type
+    #' - Dimensions
+    #' - Size
+    #' @param matrix matrix. The matrix which will have the details generated from.
+    #' @param name character. The variable name of the data frame. This is used because `dplyr` pipes strip the name, and use the dot (`.`) notation for variable names.
+    #' @return A string containing the details of the matrix.
+    
+    # Validations
+    if (!is.matrix(matrix)) {stop("'matrix' must be a matrix.")}
+    if (missing(name)) {name <- deparse(substitute(matrix))}
+    if (!is.character(name)) {stop("'name' must be a string.")}
+    if (!length(name)==1) {stop("'name' must be an atomic value.")}
+    
+    # Get name
+    name <- paste("Name:", name)
+    
+    # Get type
+    type <- paste("Type:", class(matrix))
+    
+    # Get dims
+    dims <- paste("Dims:", paste(dim(matrix), collapse=" x "))
+    
+    # Get size
+    size <- matrix %>% 
+        object.size() %>% 
+        format(units="auto") %>% 
+        paste("Size:", .)
+    
+    # Combine
+    paste(name, type, dims, size, sep="\n") %>% 
+        return()
+        
+}
+
+get_VectorDetails <- function(vector, name) {
+    #' @title Get details of a vector
+    #' @description Get some key data from a `vector`, including:
+    #' - Name
+    #' - Type
+    #' - Dimensions
+    #' - Size
+    #' @param vector vector. The vector which will have the details generated from.
+    #' @param name character. The variable name of the data frame. This is used because `dplyr` pipes strip the name, and use the dot (`.`) notation for variable names.
+    #' @return A string containing the details of the vector.
+    
+    # Validations
+    if (!any(is.vector(vector), class(vector) %in% c("dist","array"))) {stop("'vector' must be a vector.")}
+    if (missing(name)) {name <- deparse(substitute(vector))}
+    if (!is.character(name)) {stop("'name' must be a string.")}
+    if (!length(name)==1) {stop("'name' must be an atomic value.")}
+    
+    # Get name
+    name <- paste("Name:", name)
+    
+    # Get type
+    type <- paste("Type:", class(vector))
+    
+    # Get dims
+    dims <- paste("Dims:", "1", "x", length(vector))
+    
+    # Get size
+    size <- vector %>% 
+        object.size() %>% 
+        format(units="auto") %>% 
+        paste("Size:", .)
+    
+    # Combine
+    paste(name, type, dims, size, sep="\n") %>% 
+        return()
+        
+}
+
+check_ObjectDetails <- function(object) {
+    #' @title Check DataFrame Details
+    #' @description Check some key details on an object, including:
+    #' - Name
+    #' - Type
+    #' - Dimensions
+    #' - Size
+    #' - Etc.
+    #' @param object object. An object of any type.
+    #' @note Is currently only set up to handle `data.frame` and `matrix` data types.
+    #' @return A string that contains all the dataframe details. This is able to be compiled in to a readable format using the `cat()` function.
+    
+    # Validations:
+    # These occur in the sub-functions.
+    
+    str_return <- NULL
+    
+    # Check if is data.frame
+    if (is.data.frame(object)) {
+        
+        # Get details
+        name <- deparse(substitute(object))
+        str_return %<>% paste(get_DataFrameDetails(object, name), sep="\n\n")
+        
+    # Check if is matrix
+    } else if (is.matrix(object)) {
+        
+        # Get details
+        name <- deparse(substitute(object))
+        str_return %<>% paste(get_MatrixDetails(object, name), sep="\n\n")
+    
+    # Check if is distance matrix
+    } else if (class(object)=="dist") {
+        
+        # Get details
+        name <- deparse(substitute(object))
+        str_return %<>% paste(get_VectorDetails(object, name), sep="\n\n")
+        
+    # Check if is vector
+    } else if (is.vector(object)) {
+        
+        if (length(object)<10) {
+            
+            # Break if vector is not an array of strings.
+            if (!is.character(object)) {stop("Each element of the 'object' argument must be a character string.")}
+            
+            # Loop through each element
+            for (obj in object) {
+                
+                # Get object and get details
+                name <- obj
+                obj <- get(obj)
+                
+                if (is.data.frame(obj)) {
+                    
+                    str_return %<>% paste(get_DataFrameDetails(obj, name), sep="\n\n")
+                    
+                } else if (is.matrix(obj)) {
+                    
+                    str_return %<>% paste(get_MatrixDetails(obj, name), sep="\n\n")
+                    
+                } else {
+                    
+                    str_return %<>% paste(get_VectorDetails(obj, name), sep="\n\n")
+                    
+                }
+                
+            }
+        
+        } else {
+            
+            # Get details
+            name <- deparse(substitute(object))
+            str_return %<>% paste(get_VectorDetails(object, name), sep="\n\n")
+            
+        }
+        
+    }
+    
+    # Tidy the start of the str_return
+    str_return %<>% str_NotLeft(4)
+    
+    # Return
+    return(str_return)
+    
+}
+
+
+# UDF for subsetting Matrices ----
+nlargest <- function(matrix, number, print=FALSE) {
+    #' @title Return the nth largest numbers from a matrix
+    #' @description Subset a matrix to select the 'n' largest number of values.
+    #' @param matrix matrix. A matrix, which is the matrix to be sub-set.
+    #' @param number numeric. A single numeric value, corresponding to the number of values to be returned.
+    #' @param print logical. A logical value for whether or not the results should be printed.
+    #' @return A matrix containing columns:
+    #' - 'row' : A numeric value corresponding to the row index of the returned value.
+    #' - 'col' : A numeric value corresponding to the column index of the returned value.
+    #' - 'val' : A numeric value which is the similarity score between the 'row' and 'col' values.
+    
+    # Validations:
+    if (!is.matrix(matrix)) {stop("'matrix' must be a matrix")}
+    if (!is.numeric(matrix)) {stop("'matrix' must be numeric")}
+    if (!length(number)==1) {stop("'number' must be atomic")}
+    if (!is.numeric(number)) {stop("'number' must be numeric")}
+    if (!number %% 1 == 0) {stop("'number' must be an integer")}
+    
+    # Determine the indices to be returned
+    order <- order(matrix, decreasing=TRUE)[seq_len(number)]
+    
+    # Generate the matrix of indices to be returned
+    position <- arrayInd(order, dim(matrix), useNames=TRUE)
+    position <- set_colnames(position, c("rec1", "rec2"))
+    position <- cbind(position, val=matrix[order])
+    
+    # Print subset number
+    if (print==TRUE) {
+        cat("Selected threshold : ", threshold, "\n"
+           ,"Matching records   : ", nrow(position), "\n"
+           ,"Total records      : ", nrow(matrix), "\n"
+           ,"Matching percent   : ", nrow(position)/nrow(matrix)
+           ,sep=""
+           )
+    }
+    
+    # Return
+    return(position)
+    
+}
+
+tlargest <- function(matrix, threshold, print=FALSE) {
+    #' @title Return Matrix Values Above A Threshold
+    #' @description Subset a matrix to return values that are above a specified threshold.
+    #' @note Will also print the count of how many records were matched. Necessary due to the ambiguity of using a threshold value.
+    #' @param matrix matrix. A matrix, which is the matrix to be sub-set.
+    #' @param threshold numeric. A single numeric value, corresponding to the threshold, above which values are to be returned.
+    #' @param print logical. A logical value for whether or not the results should be printed.
+    #' @return A matrix containing columns:
+    #' - 'row' : A numeric value corresponding to the row index of the returned value.
+    #' - 'col' : A numeric value corresponding to the column index of the returned value.
+    #' - 'val' : A numeric value which is the similarity score between the 'row' and 'col' values.
+    
+    # Validations:
+    if (!is.matrix(matrix)) {stop("'matrix' must be a matrix")}
+    if (!is.numeric(matrix)) {stop("'matrix' must be numeric")}
+    if (!length(threshold)==1) {stop("'threshold' must be atomic")}
+    if (!is.numeric(threshold)) {stop("'threshold' must be numeric")}
+    if (!between(threshold, 0, 1)) {stop("'threshold' must be between 0 and 1")}
+    
+    # Determine the indices to be returned
+    sort <- sort(matrix, decreasing=TRUE)
+    order <- order(matrix, decreasing=TRUE)
+    order <- order[sort>=threshold]
+    
+    # Generate the matrix of indices to be returned
+    position <- arrayInd(order, dim(matrix), useNames=TRUE)
+    position <- set_colnames(position, c("rec1", "rec2"))
+    position <- cbind(position, val=matrix[order])
+    
+    # Print subset number
+    if (print==TRUE) {
+        cat("Selected threshold : ", threshold, "\n"
+           ,"Matching records   : ", nrow(position), "\n"
+           ,"Total records      : ", nrow(matrix), "\n"
+           ,"Matching percent   : ", nrow(position)/nrow(matrix)
+           ,sep=""
+           )
+    }
+    
+    # Return
+    return(position)
+    
+}
+
+
+# UDF for finding matching records ----
+find_MatchingRecords <- function(dataframe, sim_matrix, print=FALSE) {
+    #' @title Find Mathching Records
+    #' @description Use 'sim_matrix' to find matching records from 'dataframe'.
+    #' @note The `sim_matrix` contains the similarity matrix, generated from `stringdistmatrix()` and the `nlargest()` (or `tlargest()`) functions.
+    #' @param dataframe dataframe. The dataframe from which the matching records will be extracted.
+    #' @param sim_matrix matrix. The matrix containing the attributes for finding the matching records.
+    #' @param print logical. Whether or not to print the output as a text string.
+    #' @return A data.frame containing the score and the records that have been matched. Also, this is printed to the console.
+    
+    # Validations
+    if (!is.data.frame(dataframe)) {stop("'dataframe' must be a dataframe")}
+    if (!is.matrix(sim_matrix)) {stop("'sim_matrix' must be a matrix.")}
+    if (!is.double(sim_matrix[[2]])) {stop("'sim_matrix' must be a numeric matrix.")}
+    if (c("rec1","rec2") %>% is_in(colnames(sim_matrix)) %>% all() %>% not()) {stop("'sim_matrix' must contain two columns named: 'rec1' and 'rec2'.")}
+    
+    # Set output
+    str_return <- NULL
+    dat_return <- data.frame("Score"=NA_real_
+                            ,"Index1"=NA_real_
+                            ,"Record1"=NA_character_
+                            ,"Index2"=NA_real_
+                            ,"Record2"=NA_character_
+                            ,stringsAsFactors=FALSE
+                            )
+    
+    # Determine number of itterations
+    iterations <- sim_matrix %>% nrow()
+    
+    # Loop through number of itteraions
+    for (i in 1:iterations) {
+        
+        # Extract score
+        sim_score <- sim_matrix %>% 
+            extract(i, 3)
+        
+        # Extract the first matching index
+        rec1_index <- sim_matrix %>%
+            extract(i,1)
+        
+        # Extract first matching record
+        rec1_record <- sim_matrix %>% 
+            extract(i,1) %>% 
+            extract(dataframe, ., ) %>% 
+            as.character() %>% 
+            paste(collapse=" ")
+        
+        # Extract the second matching index
+        rec2_index <- sim_matrix %>% 
+            extract(i,2)
+        
+        # Extract second matching record
+        rec2_record <- sim_matrix %>% 
+            extract(i,2) %>% 
+            extract(dataframe, ., ) %>% 
+            as.character() %>% 
+            paste(collapse=" ")
+        
+        # Build return
+        str_return %<>% paste0("\n") %>% 
+            paste0("Score: ", sim_score, "\n") %>% 
+            paste0("Record 1: (Index ", rec1_index, ") ", rec1_record, "\n") %>% 
+            paste0("Record 2: (Index ", rec2_index, ") ", rec2_record, "\n") 
+        dat_return[i,] <- c(sim_score, rec1_index, rec1_record, rec2_index, rec2_record)
+        
+    }
+    
+    # Print str_return
+    if (print==TRUE) {
+      cat(str_return)
+    }
+    
+    # Return dat_return
+    return(dat_return)
+    
+}
+
+print_MatchingRecords <- function(dataframe) {
+    #' @title Print Matching Records
+    #' @description Special function which takes the results of the `find_MatchingRecords()` function, and prints to the console.
+    #' @param dataframe data.frame. The data.frame which contains the matching records data.
+    #' @return A string which can be pretty printed using the `cat()` function.
+    
+    # Validations
+    if (!is.data.frame(dataframe)) {stop("'dataframe' must be a data.frame.")}
+    if (!all(c("Score","Index1","Record1","Index2","Record2") %in% colnames(dataframe))) {stop("'dataframe' must contain the columns: 'Score','Index1','Record1','Index2','Record2'")}
+    
+    # Initiate return
+    str_return <- NULL
+    
+    # Loop through each line
+    for (i in 1:nrow(dataframe)) {
+        
+        # Extract score
+        sim_score <- dataframe %>% extract(i, 1)
+        
+        # Extract the first matching index
+        rec1_index <- dataframe %>% extract(i, 2)
+        
+        # Extract first matching record
+        rec1_record <- dataframe %>% extract(i, 3)
+        
+        # Extract the second matching index
+        rec2_index <- dataframe %>% extract(i, 4)
+        
+        # Extract second matching record
+        rec2_record <- dataframe %>% extract(i, 5)
+        
+        # Build return
+        str_return %<>%
+            paste0("Score: ", sim_score, "\n") %>% 
+            paste0("Record 1: (Index ", rec1_index, ") ", rec1_record, "\n") %>% 
+            paste0("Record 2: (Index ", rec2_index, ") ", rec2_record, "\n\n") 
+        
+    }
+    
+    # Return
+    return(str_return)
+    
+}
+
+```
+
+```{r LOAD Packages with Function, echo=FALSE, eval=TRUE, results="hide", warning=FALSE, message=FALSE}
+# Load packages using defined function
+LoadPackages(c("tidyverse", "docstring", "kableExtra", "scales", "stringdist", "rprojroot", "readxl", "readr", "magrittr", "DBI", "RSQLite", "tictoc"), T)
+```
+
+```{r SET Defaults, echo=FALSE, eval=TRUE}
+# Set Default themes
+theme_set(theme_bw())
+theme_update(plot.title = element_text(hjust=0.5)
+            ,plot.subtitle = element_text(hjust=0.5)
+            )
+
+# Set Default table and figure sizes
+knitr::opts_chunk$set(rows.print=200, cols.print=30, fig.width=10, fig.height=7)
+
+# Set Default rounding length
+options(digits = 4)
+options(scipen = 999)
+```
+
+
+<!-- Report -->
+
+# Introduction {#Introduction}
+
+Many databases have duplicate data. Especially if manual data entry is required. In order to clean the data and to resolve unnecessary duplicates, it is necessary to identify and rectify messy data. However, many duplicates are non-matching; meaning there could be duplicate data that contains, for example, spelling errors. It is challenging to identify these duplicates perfectly using the `SQL` database language, because this relies on *exact* matching (due to the tenets of Relational Database theory). Therefore, it is necessary to look for other methods of identifying non-matching duplicates, which is where Fuzzy Matching is able to be used.
+
+Fuzzy matching works off the notion of [edit distance](https://en.wikipedia.org/wiki/Edit_distance), which is essentially the *minimum number of operations required to transform one string into another*. One of the most commonly used edit distance metrics is [Levenshtein distance](https://en.wikipedia.org/wiki/Levenshtein_distance), which is essentially, *“the minimum number of single-character edits (insertions, deletions or substitutions) required to change one word into the other.”*. Other metrics include the [Hamming distance](https://en.wikipedia.org/wiki/Hamming_distance), the [Jaccard distance](https://en.wikipedia.org/wiki/Jaccard_index), the [Jaro-Winkler distance](https://en.wikipedia.org/wiki/Jaro%E2%80%93Winkler_distance), the [Longest Common Substring distance](https://en.wikipedia.org/wiki/Longest_common_substring_problem), or the [Cosine distance](https://en.wikipedia.org/wiki/Cosine_similarity). For the purposes of this paper, the [Optical String Alignment distance](https://en.wikipedia.org/wiki/Damerau%E2%80%93Levenshtein_distance#Optimal_string_alignment_distance) (*OSA*) is used (which is a variant on the [Damerau-Levenshtein distance](https://en.wikipedia.org/wiki/Damerau%E2%80%93Levenshtein_distance#Optimal_string_alignment_distance)).
+
+To illustrate OSA, the following example is given:
+
+    bear -> bear    = 0 steps (0 characters changed)
+    bear -> beat    = 1 step  (1 characters changed)
+    bear -> meat    = 2 steps (3 characters changed)
+    bear -> tearing = 4 steps (1 character changed, 3 characters added)
+    bear -> ear     = 1 step  (1 character removed)
+
+As seen, the number of changes needed to transform one string to another is the number of *steps* taken. This logic will be used to match records in a given database.
+
+# Set Up {#SetUp}
+
+## Load Packages {#LoadPackages}
+
+The first step is to load the necessary packages.
+
+```{r LOAD packages, echo=TRUE, eval=FALSE}
+# Load required packages
+library(tidyverse)
+library(readxl)
+library(readr)
+library(magrittr)
+library(kableExtra)
+library(stringdist)
+library(DBI)
+library(RSQLite)
+```
+
+## Load Data {#GenerateData}
+
+The next step is to load the data. The `JohnSmiths` data is 'dummy data', used to illustrate the example of fuzzy matching.
+
+```{r LOAD Data, echo=TRUE, eval=TRUE, rows.print=100}
+# Load files from Excel
+dat_JohnSmiths <- find_rstudio_root_file() %>% 
+    paste0("/Data/", "many_john_smiths.xlsx") %>% 
+    read_excel() %>% 
+    data.frame()
+```
+
+## Check Data {#CheckData}
+
+Having loaded the data, the `JohnSmiths` data looks as follows:
+
+```{r VIEW JohnSmiths data, echo=FALSE, eval=TRUE}
+# Review data
+dat_JohnSmiths %>% 
+    kable() %>% 
+    kable_styling(bootstrap_options=c("striped","bordered","condensed")
+                 ,full_width=FALSE
+                 ,position="left"
+                 ) %>% 
+    (function(x){
+        x %>% save_kable("Images/JohnSmithsRaw.png")
+        x %>% return()
+    })
+```
+
+Upon reviewing the dataframe, the details appear as follows:
+
+```{r CHECK JohnSmiths Data, echo=FALSE, eval=TRUE, rows.print=100}
+check_ObjectDetails(dat_JohnSmiths) %>% cat()
+```
+
+# Using `SQL` {#UsingSql}
+
+```{r SETUP Sql, echo=FALSE, eval=TRUE, results="hide", warning=FALSE, message=FALSE}
+# Create Connection
+db <- dbConnect(RSQLite::SQLite(), dbname=":memory:")
+
+# Write the dataframe's to tables
+dbWriteTable(db, "JohnSmiths", dat_JohnSmiths)
+
+# Check they're correctly loaded
+dbListTables(db)
+```
+
+When using `SQL` to check the data, the following script was used. Noting that it joins on the `FirstName`, `LastName`, `AddressPostcode` and `CustomerID` fields. The results of the query return all the data. Meaning that it was unable to identify any duplicates. Therefore SQL cannot be used for this purpose.
+
+```{sql CHECK JohnSmiths via SQL, echo=TRUE, evah=TRUE, connection=db}
+/* Check for duplicates between the two tables. */
+SELECT *
+FROM JohnSmiths t1
+WHERE EXISTS (
+    SELECT 'x'
+    FROM JohnSmiths t2
+    WHERE t1.FirstName=t2.FirstName
+        AND t1.LastName=t2.LastName
+        AND t1.AddressPostcode=t2.AddressPostcode
+        AND t1.CustomerID=t2.CustomerID
+    )
+```
+
+```{r PACKUP Sql, echo=FALSE, eval=TRUE, results="hide", warning=FALSE, message=FALSE}
+# Close Connection
+dbDisconnect(db)
+```
+
+
+# Using `R` {#UsingR}
+
+## Overview {#Overview}
+
+To find duplicates via Fuzzy Matching, the following steps are followed:
+
+1. Concatenate the key fields in to a single text string for each row.
+1. Calculate the string lengths of each record.
+1. Create the String Distance Matrix (using the `stringdistmatrix()` function from the `stringdist` package).
+1. Normalise the String Distance Matrix to a value between `0` and `1`:
+
+    1. Create a pair-wise vector of the maximum length of set of pairs.
+    1. Divide the distance lenth by the length of the longer string.
+    
+1. Create a similarity matrix
+1. Identify each pair of records which are above a similarity threshold.
+1. Display the resulting records.
+
+
+## Walkthrough {#Walkthrough}
+
+The first step is to concatenate the strings together. This is done using the `paste0()` function. The resulting vector appears as follows (each element is placed on a new line for convenience).
+
+```{r STEP Concat the Records, eval=TRUE, echo=TRUE}
+# Create concatenated vector
+vec_Strings <- dat_JohnSmiths %>% 
+    mutate(strings=paste0(FirstName, LastName, AddressLine1, AddressPostcode, AddressSuburb, Phone)) %>% 
+    select(strings) %>% 
+    pull()
+
+# Review
+vec_Strings %>% cat(sep="\n")
+```
+
+Next, the string lengths must be calculated for each record, using the `str_length()` function from the `stringi` package.
+
+```{r STEP Calc the Lengths, eval=TRUE, echo=TRUE}
+# Create vector of lengths
+vec_Lengths <- str_length(vec_Strings)
+
+# Review the vector
+vec_Lengths %>% print()
+```
+
+Next, the String Distance Matrix is calculated, using the `stringdistmatrix()` function from the `stringdist` package. Note the use of the Optimal String Alignment algorithm, via the use of the hyper-parameter `method="osa"`. This function saves the values in a 1-Dimensional array, but when printed it displays the lower triangle of a distance matrix.
+
+```{r STEP Create StringDist, eval=TRUE, echo=TRUE}
+# Create distance matrix
+vec_Distances <- stringdistmatrix(vec_Strings, method="osa")
+
+# Review
+vec_Distances %>% print()
+```
+
+Next, it is necessary to calculate the maximum length of each pair of records. This can be achieved with the `combn()` function from the `utils` package. This function takes the following arguments:
+
+1. The vector of lengths to be iterated over.
+1. A numeric value for the number of elements to choose. The value `2` indicates it will match pairs of records.
+1. The function which will be applied to each pair. In this instance, the `max()` function is chosen.
+1. A logical value for whether or not to simplify result to a single vector or to return a list.
+
+The resulting vector appears as follows.
+
+```{r STEP Calc Pairwise Vector, eval=TRUE, echo=TRUE}
+# Create Pairwise Vector
+vec_PairwiseMax <- combn(vec_Lengths, 2, FUN=max, simplify=TRUE)
+
+# Review
+vec_PairwiseMax
+```
+
+Next, the normalised distance matrix is calculated.
+
+```{r STEP Calc Normalised Vector, eval=TRUE, echo=TRUE}
+# Calculate normalised values
+vec_NormalisedDistances <- vec_Distances/vec_PairwiseMax
+
+# Review
+vec_NormalisedDistances
+```
+
+Next, the Normalised Distances are coerced in to a matrix. Once this is created, it is important to ensure that duplicates are not counted twice. To do this, the top-right triangle, and the diagonal line are all made to be zero's.
+
+```{r STEP Create Similarity Matrix, eval=TRUE, echo=TRUE}
+# Create Similarity Matrix
+mat_SimilarityScore <- round(1-vec_NormalisedDistances, 2) %>% as.matrix()
+
+# Make the upper triangle all zero's. This is to avoid double-counting duplicates.
+mat_SimilarityScore[upper.tri(mat_SimilarityScore)] <- 0
+
+# Make the diagonals all zero's. This is to ensure that the same string does not get matched to itself.
+mat_SimilarityScore[diag(mat_SimilarityScore)] <- 0
+
+# Review
+mat_SimilarityScore
+```
+
+For point of reference, the details of this similarity matrix are printed as follows.
+
+```{r CHECK Matrix details, echo=FALSE, eval=TRUE}
+# Check details
+check_ObjectDetails(mat_SimilarityScore) %>% cat()
+```
+
+Next, the values that are above a given threshold are to be identified. In order to achieve this, a custom function is written.
+
+```{r STEP Add Function for `tlargest`, echo=TRUE, eval=FALSE}
+# Add function for identifying scores above a given threshold.
+tlargest <- function(matrix, threshold, print=FALSE) {
+    #' @title Return Matrix Values Above A Threshold
+    #' @description Subset a matrix to return values that are above a specified threshold.
+    #' @note Will also print the count of how many records were matched. Necessary due to the ambiguity of using a threshold value.
+    #' @param matrix matrix. A matrix, which is the matrix to be sub-set.
+    #' @param threshold numeric. A single numeric value, corresponding to the threshold, above which values are to be returned.
+    #' @param print logical. A logical value for whether or not the results should be printed.
+    #' @return A matrix containing columns:
+    #' - 'row' : A numeric value corresponding to the row index of the returned value.
+    #' - 'col' : A numeric value corresponding to the column index of the returned value.
+    #' - 'val' : A numeric value which is the similarity score between the 'row' and 'col' values.
+    
+    # Validations:
+    if (!is.matrix(matrix)) {stop("'matrix' must be a matrix")}
+    if (!is.numeric(matrix)) {stop("'matrix' must be numeric")}
+    if (!length(threshold)==1) {stop("'threshold' must be atomic")}
+    if (!is.numeric(threshold)) {stop("'threshold' must be numeric")}
+    if (!between(threshold, 0, 1)) {stop("'threshold' must be between 0 and 1")}
+    
+    # Determine the indices to be returned
+    sort <- sort(matrix, decreasing=TRUE)
+    order <- order(matrix, decreasing=TRUE)
+    order <- order[sort>=threshold]
+    
+    # Generate the matrix of indices to be returned
+    position <- arrayInd(order, dim(matrix), useNames=TRUE)
+    position <- set_colnames(position, c("rec1", "rec2"))
+    position <- cbind(position, val=matrix[order])
+    
+    # Print subset number
+    if (print==TRUE) {
+        cat("Selected threshold : ", threshold, "\n"
+           ,"Matching records   : ", nrow(position), "\n"
+           ,"Total records      : ", nrow(matrix), "\n"
+           ,"Matching percent   : ", nrow(position)/nrow(matrix)
+           ,sep=""
+           )
+    }
+    
+    # Return
+    return(position)
+    
+}
+```
+
+Therefore, when applied this function will generate a matrix as displayed below.
+
+```{r STEP Identify Matching Records, eval=TRUE, echo=TRUE}
+# Generate matching records
+mat_MatchingRecords <- tlargest(matrix = mat_SimilarityScore
+                               ,threshold = 0.7
+                               ,print = TRUE
+                               )
+
+# Review
+mat_MatchingRecords
+```
+
+Once the matching records have been identified, they then need to be extracted from the original table. For this, again a custom function is written. It takes the original Data Frame, along with the Similarity Matrix, then loops through the matrix to extract the relevant records from the dataframe.
+
+```{r STEP Add Function to Match Records, echo=TRUE, eval=FALSE}
+find_MatchingRecords <- function(dataframe, sim_matrix, print=FALSE) {
+    #' @title Find Mathching Records
+    #' @description Use 'sim_matrix' to find matching records from 'dataframe'.
+    #' @note The `sim_matrix` contains the similarity matrix, generated from `stringdistmatrix()` and the `nlargest()` (or `tlargest()`) functions.
+    #' @param dataframe dataframe. The dataframe from which the matching records will be extracted.
+    #' @param sim_matrix matrix. The matrix containing the attributes for finding the matching records.
+    #' @param print logical. Whether or not to print the output as a text string.
+    #' @return A data.frame containing the score and the records that have been matched. Also, this is printed to the console.
+    
+    # Validations
+    if (!is.data.frame(dataframe)) {stop("'dataframe' must be a dataframe")}
+    if (!is.matrix(sim_matrix)) {stop("'sim_matrix' must be a matrix.")}
+    if (!is.double(sim_matrix[[2]])) {stop("'sim_matrix' must be a numeric matrix.")}
+    if (c("rec1","rec2") %>% is_in(colnames(sim_matrix)) %>% all() %>% not()) {stop("'sim_matrix' must contain two columns named: 'rec1' and 'rec2'.")}
+    
+    # Set output
+    str_return <- NULL
+    dat_return <- data.frame("Score"=NA_real_
+                            ,"Index1"=NA_real_
+                            ,"Record1"=NA_character_
+                            ,"Index2"=NA_real_
+                            ,"Record2"=NA_character_
+                            ,stringsAsFactors=FALSE
+                            )
+    
+    # Determine number of itterations
+    iterations <- sim_matrix %>% nrow()
+    
+    # Loop through number of itteraions
+    for (i in 1:iterations) {
+        
+        # Extract score
+        sim_score <- sim_matrix %>% 
+            extract(i, 3)
+        
+        # Extract the first matching index
+        rec1_index <- sim_matrix %>%
+            extract(i,1)
+        
+        # Extract first matching record
+        rec1_record <- sim_matrix %>% 
+            extract(i,1) %>% 
+            extract(dataframe, ., ) %>% 
+            as.character() %>% 
+            paste(collapse=" ")
+        
+        # Extract the second matching index
+        rec2_index <- sim_matrix %>% 
+            extract(i,2)
+        
+        # Extract second matching record
+        rec2_record <- sim_matrix %>% 
+            extract(i,2) %>% 
+            extract(dataframe, ., ) %>% 
+            as.character() %>% 
+            paste(collapse=" ")
+        
+        # Build return
+        str_return %<>% paste0("\n") %>% 
+            paste0("Score: ", sim_score, "\n") %>% 
+            paste0("Record 1: (Index ", rec1_index, ") ", rec1_record, "\n") %>% 
+            paste0("Record 2: (Index ", rec2_index, ") ", rec2_record, "\n") 
+        dat_return[i,] <- c(sim_score, rec1_index, rec1_record, rec2_index, rec2_record)
+        
+    }
+    
+    # Print str_return
+    if (print==TRUE) {
+        cat(str_return)
+    }
+    
+    # Return dat_return
+    return(dat_return)
+    
+}
+```
+
+Lastly, when this function is applied, the data appears as follows.
+
+```{r STEP Generate Matching Records, echo=TRUE, eval=TRUE}
+# Generate data
+dat_MatchingRecords <- find_MatchingRecords(dataframe = dat_JohnSmiths
+                                           ,sim_matrix = mat_MatchingRecords
+                                           ,print = TRUE
+                                           )
+
+# Review
+dat_MatchingRecords %>% 
+    kable() %>% 
+    kable_styling(bootstrap_options=c("striped","bordered","condensed")
+                 ,full_width=FALSE
+                 ,position="left"
+                 ) %>% 
+    (function(x){
+        x %>% save_kable("Images/JohnSmithsMatching.png")
+        x %>% return()
+    })
+    
+```
+
+As seen, this method has identified these duplicates to a reasonable level of accuracy.
+
+## Wrap Up {#WrapUp}
+
+Therefore, when working to identify duplicates within a database, it can be useful to use 'Fuzzy Matching' to identify the similarity between different sets of records.
+
+However, considering that the data provided in this example is fictitious, it is useful to perform the same process on real-world data.
+
+# Real Example {#RealExample}
+
+Using delivery address data extracted from Warehouse Management Systems in Australia, the same method was applied.
+
+## Pre Processing {#PreProcessing}
+
+The data was loaded from an Excel spreadsheet `AddressData.xlsx`.
+
+```{r LOAD Addresses, echo=TRUE, eval=TRUE}
+# Load Data
+dat_Addresses <- find_rstudio_root_file() %>% 
+    paste0("/Data/", "AddressData.xlsx") %>% 
+    read_excel(col_types=c("text")) %>% 
+    data.frame()
+```
+
+The top 10 records appears as follows:
+
+```{r VIEW Addresses, echo=FALSE, eval=TRUE}
+# Review data
+dat_Addresses %>% 
+    head(10) %>% 
+    kable() %>% 
+    kable_styling(bootstrap_options=c("striped","bordered","condensed")
+                 ,full_width=FALSE
+                 ,position="left"
+                 ) %>% 
+    (function(x){
+        x %>% save_kable("Images/AddressesRaw.png")
+        x %>% return()
+    })
+```
+
+With the details of the data displayed as follows:
+
+```{r CHECK Addresses, echo=FALSE, eval=TRUE}
+check_ObjectDetails(dat_Addresses) %>% cat()
+```
+
+Then some pre-processing manipulation is performed on the Addresses to reduce the size of the data.
+
+```{r CLEAN Data, echo=TRUE, eval=TRUE, rows.print=20}
+# Mutate data.
+# Steps:
+# 1. Remove unnecessary columns
+# 2. Remove special characters
+# 3. Remove numeric values (Street numbers, etc.)
+# 4. Remove additional white spaces
+# 5. Capitalise
+# 6. Select distinct.
+dat_AddressesClean <- dat_Addresses %>% 
+    select(-CONTACT, -PHONE) %>% 
+    mutate_all(str_replace_all, "[[:punct:]]", "") %>% 
+    mutate_at(c("COMPANY", "ADDRESS", "CITY", "STATE"), str_replace_all, "[0-9]", "") %>% 
+    mutate_all(str_squish) %>% 
+    mutate_all(str_to_upper) %>% 
+    distinct() %>% 
+    arrange(ISOCNTRYCODE, STATE, CITY, ADDRESS)
+
+# Check result
+check_ObjectDetails(dat_AddressesClean) %>% cat()
+```
+
+Lastly, the data must be pasted together in to a single vector, as displayed below. Now the data is ready for Fuzzy Matching.
+
+```{r CREATE Addresses Vector, echo=TRUE, eval=TRUE}
+# Create vector
+vec_Addresses <- dat_AddressesClean %>% 
+    unite("vec", sep="") %>% 
+    pull()
+
+# Review
+vec_Addresses %>%
+    head(10) %>%
+    cat(sep="\n")
+```
+
+## Process {#Process}
+
+The processing for the address data has been combined in to a single chunk, and processed accordingly. The following key call-outs must be listed:
+
+- The initial input vector was 9,964 elements long, while the distances vector was 49,635,666 elements long.
+- The distances vector was 378.7 Mb large, while the similarity matrix was 758.7 Mb large.
+- The time-taken was 128.2 seconds. Note, this varies depending on the computational power of the processor.
+
+```{r PROCESS Address Data, echo=TRUE, eval=TRUE}
+# Force this chunk to be manually triggered
+if (TRUE) {
+    
+    # Start the clock
+    tic("\n\nTime to Process Data")
+    
+    # Calculate the lengths
+    vec_AddLengths <- str_length(vec_Addresses)
+    
+    # Calculate the distances
+    vec_AddDistances <- stringdistmatrix(vec_Addresses, method="osa")
+    
+    # Calculate the max lengths
+    vec_AddPairwiseMax <- combn(vec_AddLengths, 2, max, simplify=TRUE)
+    
+    # Normalise the distances
+    vec_AddNormalisedDistances <- vec_AddDistances/vec_AddPairwiseMax
+    
+    # Add object details to the output
+    str_Output <- c("vec_Addresses", "vec_AddLengths", "vec_AddDistances", "vec_AddPairwiseMax", "vec_AddNormalisedDistances") %>% 
+        check_ObjectDetails() %>% 
+        paste(sep="\n")
+    
+    # Create the similarity matrix
+    mat_AddSimilarityScore <- round(1-vec_AddNormalisedDistances, 2) %>% as.matrix()
+    
+    # Add matrix to output
+    str_Output %<>% paste(check_ObjectDetails(mat_AddSimilarityScore), sep="\n\n")
+    
+    # Tidy the matrix
+    mat_AddSimilarityScore[upper.tri(mat_AddSimilarityScore)] <- 0
+    mat_AddSimilarityScore[diag(mat_AddSimilarityScore)] <- 0
+    
+    # Re-add matrix to output
+    str_Output %<>% paste(check_ObjectDetails(mat_AddSimilarityScore), sep="\n\n")
+    
+    # Print the output
+    cat(str_Output)
+    
+    # Stop the clock and print the time taken
+    toc()
+}
+```
+
+Resultingly, the records can now be matched. Note that the number of matching records was `2389` (24% of total). 
+
+```{r FIND Matching Records, echo=TRUE, eval=TRUE}
+# Find matches
+mat_AddMatchingRecords <- tlargest(matrix = mat_AddSimilarityScore
+                                  ,threshold = 0.8
+                                  ,print = TRUE
+                                  )
+
+# Find records
+dat_AddMatchingRecords <- find_MatchingRecords(dataframe = dat_AddressesClean
+                                              ,sim_matrix = mat_AddMatchingRecords
+                                              )
+```
+
+Once these matching records have been identified, they can be returned. For simplicity, the top 10 matches for each Similarity score have been returned in the below chunk.
+
+```{r CHECK Matching 0.99, echo=TRUE, eval=TRUE, rows.print=100}
+# View 0.99
+dat_AddMatchingRecords %>% 
+    filter(Score==0.99) %>% 
+    head(10) %>% 
+    print_MatchingRecords() %>% 
+    cat()
+```
+
+When selecting `threshold=0.99`, the algorithm has matched nearly perfectly, with only single character differences between the records.
+
+```{r CHECK Matching 0.98, echo=TRUE, eval=TRUE, rows.print=100}
+# View 0.98
+dat_AddMatchingRecords %>% 
+    filter(Score==0.98) %>% 
+    head(10) %>% 
+    print_MatchingRecords() %>% 
+    cat()
+```
+
+When selecting `threshold=0.98`, the algorithm has also matched nearly perfectly, also with only single character differences between the records.
+
+```{r CHECK Matching 0.8, echo=TRUE, eval=TRUE, rows.print=100}
+# View 0.8
+dat_AddMatchingRecords %>% 
+    filter(Score==0.8) %>% 
+    head(10) %>% 
+    print_MatchingRecords() %>% 
+    cat()
+```
+
+When selecting `threshold>0.9`, the algorithm has also matched nearly perfectly, also with only single character differences between the records.
+However, when selecting `threshold=0.8`, the algorithm has made false-matches. For example:
+
+* Records `43` and `36` may actually be matching duplicates, because they're both for `IC FORMWORK SERVICES` on `LONDON CCT`.
+* Records `141` and `139` has matched different businesses on the same street in the same suburb. This is a false match.
+* Records `187` and `175` has matched the same businesses on different streets in the same suburb. This is a false match.
+
+Therefore, discretion is advised when using a threshold value less than `0.9`.
+
+
+# Conclusion {#Conclusion}
+
+In conclusion, Fuzzy Matching is able to successfully identify duplicates to a reasonable level of accuracy. When matching together strings with a single-character difference, these are given with a nearly perfect matching score (`>0.99`). However, when the threshold is set to `~0.8`, then the logic begins to match different businesses on the same street in the same suburb, or the same business in different streets in the same suburb, etc. This is a risk for implementation, therefore the threshold must be chosen carefully.
+
+Moreover, due to the substantially large objects created during processing, appropriate data segmentation is appropriate so as to avoid causing computational issues.
+
+Also note, data input validation is always better than retrospective data cleaning. This solution should be implemented in instances where address data is given by external parties (such as an EDI connection). If the data is identified to be a confidence-interval of `>0.99`, then it is reasonable to auto-amend the data; however if it is `~0.8`, then it would be better for the data to be flagged for review by an employee.
+
+
+# References {#References}
+
+Awati 2019, 'Tackling the John Smith Problem – deduplicating data via fuzzy matching in R', <https://eight2late.wordpress.com/2019/10/09/tackling-the-john-smith-problem-deduplicating-data-via-fuzzy-matching-in-r/>.
+
+Wikipedia 2019, 'Cosine similarity', <https://en.wikipedia.org/wiki/Cosine_similarity>.
+
+Wikipedia 2019, 'Edit distance', <https://en.wikipedia.org/wiki/Edit_distance>.
+
+Wikipedia 2019, 'Hamming distance', <https://en.wikipedia.org/wiki/Hamming_distance>.
+
+Wikipedia 2019, 'Jaccard index', <https://en.wikipedia.org/wiki/Jaccard_index>.
+
+Wikipedia 2019, 'Jaro–Winkler distance', <https://en.wikipedia.org/wiki/Jaro%E2%80%93Winkler_distance>.
+
+Wikipedia 2019, 'Levenshtein distance', <https://en.wikipedia.org/wiki/Levenshtein_distance>.
+
+Wikipedia 2019, 'Longest common substring problem', <https://en.wikipedia.org/wiki/Longest_common_substring_problem>.
+
+Wikipedia 2019, 'Optimal string alignment distance', <https://en.wikipedia.org/wiki/Damerau%E2%80%93Levenshtein_distance#Optimal_string_alignment_distance>.
+
+
+# Post Script {#PostScript}
+
+**Acknowledgements**: This report was compiled with some assistance from others. Acknowledgements go to:
+
+1. (Kailash Awati)[https://eight2late.wordpress.com/about/] for I used his original article ((Tackling the John Smith Problem)[https://eight2late.wordpress.com/2019/10/09/tackling-the-john-smith-problem-deduplicating-data-via-fuzzy-matching-in-r/]) as a basis for this article.
+
+
+**Publications**: This report is also published on the following sites:
+
+1. RPubs: [RPubs/chrimaho/AusEnergyPrices](http://rpubs.com/chrimaho/AusEnergyPrices)
+1. GitHub: [GitHub/chrimaho/AddressingTheJohnSmithProblem](https://github.com/chrimaho/AddressingTheJohnSmithProblem)
+1. Medium: [Medium/chrimaho/AusEnergyPrices](https://medium.com/@chrimaho/ausenergyprices-737b9cbe5540?sk=8d0dd0bc3167c2ce59d9b389d5c443af)
+
+**Change Log**: This publication was modified on the following dates:
+
+1. 02/Nov/2019: Original Publication date.
+
