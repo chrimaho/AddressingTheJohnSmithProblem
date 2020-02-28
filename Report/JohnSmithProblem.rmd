@@ -5,6 +5,18 @@ author: 'Author: [Chris Mahoney](https://www.linkedin.com/in/chrimaho/)'
 date: 'Special thanks to: [Kailash Awati](https://eight2late.wordpress.com/2019/10/09/tackling-the-john-smith-problem-deduplicating-data-via-fuzzy-matching-in-r/)'
 toc-title: Contents
 output:
+  html_notebook: 
+    code_folding: none
+    highlight: haddock
+    includes:
+      after_body: footer.html
+      in_header: header.html
+    number_sections: yes
+    theme: lumen
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: no
   html_document:
     code_download: yes
     highlight: haddock
@@ -18,18 +30,6 @@ output:
     includes:
       in_header: header.html
       after_body: footer.html
-  html_notebook: 
-    code_folding: none
-    highlight: haddock
-    includes:
-      after_body: footer.html
-      in_header: header.html
-    number_sections: yes
-    theme: lumen
-    toc: yes
-    toc_depth: 4
-    toc_float:
-      collapsed: no
 ---
 
 <style>
@@ -725,11 +725,12 @@ library(kableExtra)
 library(stringdist)
 library(DBI)
 library(RSQLite)
+library(tictoc)
 ```
 
 ## Load Data {#GenerateData}
 
-The next step is to load the data. The `JohnSmiths` data is 'dummy data', used to illustrate the example of fuzzy matching.
+The next step is to load the data. The `JohnSmiths` data is 'dummy data', used to illustrate the example of fuzzy matching. The original data can be found on [Eight2Late](https://eight2late.files.wordpress.com/2019/10/many_john_smiths.xlsx).
 
 ```{r LOAD Data, echo=TRUE, eval=TRUE, rows.print=100}
 # Load files from Excel
@@ -741,13 +742,13 @@ dat_JohnSmiths <- find_rstudio_root_file() %>%
 
 ## Check Data {#CheckData}
 
-Having loaded the data, the `JohnSmiths` data looks as follows:
+Having loaded the spreadsheet, the `JohnSmiths` data looks as follows:
 
 ```{r VIEW JohnSmiths data, echo=FALSE, eval=TRUE}
 # Review data
 dat_JohnSmiths %>% 
     kable() %>% 
-    kable_styling(bootstrap_options=c("striped","bordered","condensed")
+    kable_styling(bootstrap_options=c("striped", "bordered", "condensed")
                  ,full_width=FALSE
                  ,position="left"
                  ) %>% 
@@ -824,7 +825,13 @@ The first step is to concatenate the strings together. This is done using the `p
 ```{r STEP Concat the Records, eval=TRUE, echo=TRUE}
 # Create concatenated vector
 vec_Strings <- dat_JohnSmiths %>% 
-    mutate(strings=paste0(FirstName, LastName, AddressLine1, AddressPostcode, AddressSuburb, Phone)) %>% 
+    mutate(strings=paste0(FirstName
+                         ,LastName
+                         ,AddressLine1
+                         ,AddressPostcode
+                         ,AddressSuburb
+                         ,Phone
+                         )) %>% 
     select(strings) %>% 
     pull()
 
@@ -1056,7 +1063,7 @@ dat_MatchingRecords <- find_MatchingRecords(dataframe = dat_JohnSmiths
 # Review
 dat_MatchingRecords %>% 
     kable() %>% 
-    kable_styling(bootstrap_options=c("striped","bordered","condensed")
+    kable_styling(bootstrap_options=c("striped", "bordered", "condensed")
                  ,full_width=FALSE
                  ,position="left"
                  ) %>% 
@@ -1098,7 +1105,7 @@ The top 10 records appears as follows:
 dat_Addresses %>% 
     head(10) %>% 
     kable() %>% 
-    kable_styling(bootstrap_options=c("striped","bordered","condensed")
+    kable_styling(bootstrap_options=c("striped", "bordered", "condensed")
                  ,full_width=FALSE
                  ,position="left"
                  ) %>% 
@@ -1161,9 +1168,9 @@ The processing for the address data has been combined in to a single chunk, and 
 - The time-taken was 128.2 seconds. Note, this varies depending on the computational power of the processor.
 
 ```{r PROCESS Address Data, echo=TRUE, eval=TRUE}
-# Force this chunk to be manually triggered
+# Add block to print all at once.
 if (TRUE) {
-    
+
     # Start the clock
     tic("\n\nTime to Process Data")
     
@@ -1202,6 +1209,7 @@ if (TRUE) {
     
     # Stop the clock and print the time taken
     toc()
+    
 }
 ```
 
@@ -1274,30 +1282,30 @@ Also note, data input validation is always better than retrospective data cleani
 
 # References {#References}
 
-Awati 2019, 'Tackling the John Smith Problem – deduplicating data via fuzzy matching in R', <https://eight2late.wordpress.com/2019/10/09/tackling-the-john-smith-problem-deduplicating-data-via-fuzzy-matching-in-r/>.
+Awati 2019, 'Tackling the John Smith Problem – deduplicating data via fuzzy matching in R', <<https://eight2late.wordpress.com/2019/10/09/tackling-the-john-smith-problem-deduplicating-data-via-fuzzy-matching-in-r/>>.
 
-Wikipedia 2019, 'Cosine similarity', <https://en.wikipedia.org/wiki/Cosine_similarity>.
+Wikipedia 2019, 'Cosine similarity', <<https://en.wikipedia.org/wiki/Cosine_similarity>>.
 
-Wikipedia 2019, 'Edit distance', <https://en.wikipedia.org/wiki/Edit_distance>.
+Wikipedia 2019, 'Edit distance', <<https://en.wikipedia.org/wiki/Edit_distance>>.
 
-Wikipedia 2019, 'Hamming distance', <https://en.wikipedia.org/wiki/Hamming_distance>.
+Wikipedia 2019, 'Hamming distance', <<https://en.wikipedia.org/wiki/Hamming_distance>>.
 
-Wikipedia 2019, 'Jaccard index', <https://en.wikipedia.org/wiki/Jaccard_index>.
+Wikipedia 2019, 'Jaccard index', <<https://en.wikipedia.org/wiki/Jaccard_index>>.
 
-Wikipedia 2019, 'Jaro–Winkler distance', <https://en.wikipedia.org/wiki/Jaro%E2%80%93Winkler_distance>.
+Wikipedia 2019, 'Jaro–Winkler distance', <<https://en.wikipedia.org/wiki/Jaro%E2%80%93Winkler_distance>>.
 
-Wikipedia 2019, 'Levenshtein distance', <https://en.wikipedia.org/wiki/Levenshtein_distance>.
+Wikipedia 2019, 'Levenshtein distance', <<https://en.wikipedia.org/wiki/Levenshtein_distance>>.
 
-Wikipedia 2019, 'Longest common substring problem', <https://en.wikipedia.org/wiki/Longest_common_substring_problem>.
+Wikipedia 2019, 'Longest common substring problem', <<https://en.wikipedia.org/wiki/Longest_common_substring_problem>>.
 
-Wikipedia 2019, 'Optimal string alignment distance', <https://en.wikipedia.org/wiki/Damerau%E2%80%93Levenshtein_distance#Optimal_string_alignment_distance>.
+Wikipedia 2019, 'Optimal string alignment distance', <<https://en.wikipedia.org/wiki/Damerau%E2%80%93Levenshtein_distance#Optimal_string_alignment_distance>>.
 
 
 # Post Script {#PostScript}
 
 **Acknowledgements**: This report was compiled with some assistance from others. Acknowledgements go to:
 
-1. (Kailash Awati)[https://eight2late.wordpress.com/about/] for I used his original article ((Tackling the John Smith Problem)[https://eight2late.wordpress.com/2019/10/09/tackling-the-john-smith-problem-deduplicating-data-via-fuzzy-matching-in-r/]) as a basis for this article.
+1. [Kailash Awati](https://eight2late.wordpress.com/about/) for I used his original article ([Tackling the John Smith Problem](https://eight2late.wordpress.com/2019/10/09/tackling-the-john-smith-problem-deduplicating-data-via-fuzzy-matching-in-r/)) as a basis for this article.
 
 
 **Publications**: This report is also published on the following sites:
