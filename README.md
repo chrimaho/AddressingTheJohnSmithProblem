@@ -10,7 +10,7 @@
 
 1. RPubs: [RPubs/chrimaho/AddressingTheJohnSmithProblem](http://rpubs.com/chrimaho/AddressingTheJohnSmithProblem)
 1. GitHub: [GitHub/chrimaho/AddressingTheJohnSmithProblem](https://github.com/chrimaho/AddressingTheJohnSmithProblem)
-1. Medium: [Medium/chrimaho/AddressingTheJohnSmithProblem](https://medium.com/@chrimaho/addressing-the-john-smith-problem-1533da4f7db8)
+1. Medium: [Medium/chrimaho/AddressingTheJohnSmithProblem](https://medium.com/@chrimaho/addressingthejohnsmithproblem-1533da4f7db8?source=friends_link&sk=ae556dc05ee752a9b809092ca152da18)
 
 **Change Log**: This publication was modified on the following dates:
 
