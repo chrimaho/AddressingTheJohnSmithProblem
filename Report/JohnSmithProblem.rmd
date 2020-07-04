@@ -5,18 +5,6 @@ author: 'Author: [Chris Mahoney](https://www.linkedin.com/in/chrimaho/)'
 date: 'Special thanks to: [Kailash Awati](https://eight2late.wordpress.com/2019/10/09/tackling-the-john-smith-problem-deduplicating-data-via-fuzzy-matching-in-r/)'
 toc-title: Contents
 output:
-  html_notebook: 
-    code_folding: none
-    highlight: haddock
-    includes:
-      after_body: footer.html
-      in_header: header.html
-    number_sections: yes
-    theme: lumen
-    toc: yes
-    toc_depth: 4
-    toc_float:
-      collapsed: no
   html_document:
     code_download: yes
     highlight: haddock
@@ -30,6 +18,18 @@ output:
     includes:
       in_header: header.html
       after_body: footer.html
+  html_notebook: 
+    code_folding: none
+    highlight: haddock
+    includes:
+      after_body: footer.html
+      in_header: header.html
+    number_sections: yes
+    theme: lumen
+    toc: yes
+    toc_depth: 4
+    toc_float:
+      collapsed: no
 ---
 
 <style>
@@ -1084,7 +1084,7 @@ However, considering that the data provided in this example is fictitious, it is
 
 # Real Example {#RealExample}
 
-Using delivery address data extracted from Warehouse Management Systems in Australia, the same method was applied.
+Using business addresses scraped from the web, the same method was applied.
 
 ## Pre Processing {#PreProcessing}
 
@@ -1126,14 +1126,12 @@ Then some pre-processing manipulation is performed on the Addresses to reduce th
 ```{r CLEAN Data, echo=TRUE, eval=TRUE, rows.print=20}
 # Mutate data.
 # Steps:
-# 1. Remove unnecessary columns
-# 2. Remove special characters
-# 3. Remove numeric values (Street numbers, etc.)
-# 4. Remove additional white spaces
-# 5. Capitalise
-# 6. Select distinct.
+# 1. Remove special characters
+# 2. Remove numeric values (Street numbers, etc.)
+# 3. Remove additional white spaces
+# 4. Capitalise
+# 5. Select distinct.
 dat_AddressesClean <- dat_Addresses %>% 
-    select(-CONTACT, -PHONE) %>% 
     mutate_all(str_replace_all, "[[:punct:]]", "") %>% 
     mutate_at(c("COMPANY", "ADDRESS", "CITY", "STATE"), str_replace_all, "[0-9]", "") %>% 
     mutate_all(str_squish) %>% 
@@ -1310,11 +1308,11 @@ Wikipedia 2019, 'Optimal string alignment distance', <<https://en.wikipedia.org/
 
 **Publications**: This report is also published on the following sites:
 
-1. RPubs: [RPubs/chrimaho/AusEnergyPrices](http://rpubs.com/chrimaho/AusEnergyPrices)
+1. RPubs: [RPubs/chrimaho/AddressingTheJohnSmithProblem](http://rpubs.com/chrimaho/AddressingTheJohnSmithProblem)
 1. GitHub: [GitHub/chrimaho/AddressingTheJohnSmithProblem](https://github.com/chrimaho/AddressingTheJohnSmithProblem)
-1. Medium: [Medium/chrimaho/AusEnergyPrices](https://medium.com/@chrimaho/ausenergyprices-737b9cbe5540?sk=8d0dd0bc3167c2ce59d9b389d5c443af)
+1. Medium: [Medium/chrimaho/AddressingTheJohnSmithProblem](https://medium.com/@chrimaho/addressing-the-john-smith-problem-1533da4f7db8)
 
 **Change Log**: This publication was modified on the following dates:
 
-1. 02/Nov/2019: Original Publication date.
+1. 04/Jul/2020: Original Publication date.
 
